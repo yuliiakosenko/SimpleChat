@@ -1,97 +1,80 @@
 package ie.atu.sw;
-
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.io.Writer;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.concurrent.Callable;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-class ChatServer {
 
-	// Port number on which the server will listen
-	public static final int PORT = 13;
 
-	// Main method - entry point of the program
-	public static void main(String[] args) {
-		// Creating a thread pool to handle multiple client connections
-		ExecutorService pool = Executors.newFixedThreadPool(50);
 
-		// Try-with-resources statement to ensure proper closure of resources
-		try (ServerSocket server = new ServerSocket(PORT)) {
-			// Inform that the server is listening on the specified port
-			System.out.println("Listening for connection on port " + PORT);
 
-			// Infinite loop to keep the server running
-			while (true) {
-				try {
-					// Accept an incoming client connection
-					Socket connection = server.accept();
+public class ChatServer {
 
-					// Log the connection details
-					System.out.println(
-							"Client connected from " + connection.getInetAddress() + ":" + connection.getPort());
+    private static final int PORT = 13;
+ 
 
-					// Create a new task for handling the client connection
-					ChatTask task = new ChatTask(connection);
+    public static void main(String[] args) throws IOException {
+        ExecutorService pool = Executors.newCachedThreadPool();
+        try (ServerSocket server = new ServerSocket(PORT)) {
+            System.out.println("Server listening on port " + PORT);
 
-					// Submit the task to the thread pool for execution
-					pool.submit(task);
-				} catch (IOException ex) {
-					// Log any IOException that occurs when accepting a connection
-					System.err.println("Error accepting connection: " + ex.getMessage());
-				}
-			}
-		} catch (IOException ex) {
-			// Log any IOException that occurs when setting up the server
-			System.err.println("Couldn't start server: " + ex.getMessage());
-		}
-	}
+            while (true) {
+                Socket clientSocket = server.accept();
+                System.out.println("Client connected");
+
+                ChatHandler handler = new ChatHandler(clientSocket);
+                pool.submit(handler);
+            }
+        }
+    }
 }
 
-// Class for handling individual client connections
-class ChatTask implements Callable<Void> {
-	// Socket representing the client connection
-	private Socket connection;
+class ChatHandler implements Runnable {
+    private final Socket clientSocket;
+	private Object out;
+    private static List<ChatHandler> ChatHandler = new CopyOnWriteArrayList<>();
+    
 
-	// Constructor for ChatTask
-	ChatTask(Socket connection) {
-		this.connection = connection;
-	}
+    ChatHandler(Socket socket) {
+        this.clientSocket = socket;
+    }
+    private void broadcastMessage(String message) {
+        for (ChatHandler clientHandler : ChatHandler) {
+            if (clientHandler != this) { // Don't send the message back to the sender
+                ((PrintStream) clientHandler.out).println(message); // Send the message to each client
+            }
+        }
+    }
+    @Override
+    public void run() {
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+             PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+             BufferedReader console = new BufferedReader(new InputStreamReader(System.in))) {
 
-	// The call method that will be executed by the thread pool
-	 @Override
-	    public Void call() {
-	        try {
-	            // Create a BufferedReader to read data from the client
-	            BufferedReader clientInput = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-	            // Create a Writer to send data back to the client (if needed)
-	            Writer out = new OutputStreamWriter(connection.getOutputStream());
+            String inputLine;
+            while ((inputLine = in.readLine()) != null) {
+                if ("\\q".equals(inputLine)) {
+                    break;
+                }
+                System.out.println(inputLine);
 
-	            String clientMessage;
-	            // Infinite loop for continuously reading client input
-	            while ((clientMessage = clientInput.readLine()) != null) {
-	                // Print the message received from the client
-	                System.out.println("Client says: " + clientMessage);
-
-	              
-	            }
-	        } catch (IOException e) {
-	            // Log any IOException that occurs during communication
-	            System.err.println("Error in communication: " + e.getMessage());
-	        } finally {
-	            try {
-	                // Close the client connection
-	                connection.close();
-	            } catch (IOException e) {
-	                // Log any IOException that occurs when closing the connection
-	                System.err.println("Error closing connection: " + e.getMessage());
-	            }
-	        }
-	        return null;
-	    }
-	}
+                System.out.print("Server: ");
+                String response = console.readLine();
+                out.println(response);
+            }
+        } catch (IOException e) {
+            System.err.println("Error handling client: " + e.getMessage());
+        } finally {
+            try {
+                clientSocket.close();
+            } catch (IOException e) {
+                System.err.println("Error closing socket: " + e.getMessage());
+            }
+        }
+  }
+    
+  
+} 
